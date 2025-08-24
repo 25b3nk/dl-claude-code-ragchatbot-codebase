@@ -1,9 +1,10 @@
-import pytest
-import sys
 import os
-import tempfile
 import shutil
+import sys
+import tempfile
 from pathlib import Path
+
+import pytest
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
@@ -11,8 +12,9 @@ sys.path.insert(0, str(backend_dir))
 
 # Import after path modification
 from config import Config
-from vector_store import VectorStore
 from document_processor import DocumentProcessor
+from vector_store import VectorStore
+
 
 @pytest.fixture
 def temp_dir():
@@ -20,6 +22,7 @@ def temp_dir():
     temp_dir = tempfile.mkdtemp()
     yield temp_dir
     shutil.rmtree(temp_dir)
+
 
 @pytest.fixture
 def test_config(temp_dir):
@@ -30,6 +33,7 @@ def test_config(temp_dir):
     config.CHUNK_SIZE = 400  # Smaller for faster testing
     config.CHUNK_OVERLAP = 50
     return config
+
 
 @pytest.fixture
 def sample_course_doc(temp_dir):
@@ -54,16 +58,20 @@ Lesson Link: https://example.com/lesson3
 Control structures help control the flow of your program.
 If statements make decisions, while loops repeat actions.
 """
-    
-    with open(doc_path, 'w') as f:
+
+    with open(doc_path, "w") as f:
         f.write(content)
-    
+
     return doc_path
+
 
 @pytest.fixture
 def vector_store(test_config):
     """Create a test vector store"""
-    return VectorStore(test_config.CHROMA_PATH, test_config.EMBEDDING_MODEL, test_config.MAX_RESULTS)
+    return VectorStore(
+        test_config.CHROMA_PATH, test_config.EMBEDDING_MODEL, test_config.MAX_RESULTS
+    )
+
 
 @pytest.fixture
 def document_processor(test_config):

@@ -1,10 +1,12 @@
+from typing import Dict, List, Optional
+
 import anthropic
-from typing import List, Optional, Dict
 from config import config
+
 
 class AIGenerator:
     """Handles interactions with Anthropic's Claude API for generating responses"""
-    
+
     # Static system prompt to avoid rebuilding on each call
     SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to comprehensive search and outline tools for course information.
 
@@ -43,154 +45,170 @@ All responses must be:
 5. **Example-supported** - Include relevant examples when they aid understanding
 Provide only the direct answer to what was asked.
 """
-    
+
     def __init__(self, api_key: str, model: str):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
-        
+
         # Pre-build base API parameters
-        self.base_params = {
-            "model": self.model,
-            "temperature": 0,
-            "max_tokens": 800
-        }
-    
-    def generate_response(self, query: str,
-                         conversation_history: Optional[str] = None,
-                         tools: Optional[List] = None,
-                         tool_manager=None) -> str:
+        self.base_params = {"model": self.model, "temperature": 0, "max_tokens": 800}
+
+    def generate_response(
+        self,
+        query: str,
+        conversation_history: Optional[str] = None,
+        tools: Optional[List] = None,
+        tool_manager=None,
+    ) -> str:
         """
         Generate AI response with up to 2 rounds of sequential tool usage.
-        
+
         Args:
             query: The user's question or request
             conversation_history: Previous messages for context
             tools: Available tools the AI can use
             tool_manager: Manager to execute tools
-            
+
         Returns:
             Generated response as string
         """
-        
+
         # Build system content efficiently
         system_content = (
             f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
-            if conversation_history 
+            if conversation_history
             else self.SYSTEM_PROMPT
         )
-        
+
         # Initialize conversation state
         round_counter = 0
         max_rounds = config.MAX_TOOL_ROUNDS
         messages = [{"role": "user", "content": query}]
-        
+
         # Sequential tool calling loop
         while round_counter < max_rounds:
             round_counter += 1
-            
+
             # Make API call with tools if available and within limits
-            response = self._make_api_call(messages, system_content, tools if tools and tool_manager else None)
-            
+            response = self._make_api_call(
+                messages, system_content, tools if tools and tool_manager else None
+            )
+
             # Add assistant response to conversation
             messages.append({"role": "assistant", "content": response.content})
-            
+
             # Check termination conditions
             if response.stop_reason != "tool_use" or not tool_manager:
                 return self._extract_text_response(response)
-            
+
             # Execute tools
-            tool_results = self._execute_tools_with_error_handling(response, tool_manager)
+            tool_results = self._execute_tools_with_error_handling(
+                response, tool_manager
+            )
             if not tool_results:
                 # Tool execution failed - return current response if possible
                 return self._extract_text_response(response)
-            
+
             # Add tool results to conversation
             messages.append({"role": "user", "content": tool_results})
-        
+
         # Max rounds reached - make final call without tools
         try:
             final_response = self._make_api_call(messages, system_content, tools=None)
             return self._extract_text_response(final_response)
         except Exception as e:
             return f"Error in final response generation: {str(e)}"
-    
-    def _make_api_call(self, messages: List[Dict], system_content: str, tools: Optional[List] = None):
+
+    def _make_api_call(
+        self, messages: List[Dict], system_content: str, tools: Optional[List] = None
+    ):
         """
         Make a single API call to Claude with given messages and tools.
-        
+
         Args:
             messages: List of conversation messages
             system_content: System prompt content
             tools: Optional list of available tools
-            
+
         Returns:
             API response object
         """
         api_params = {
             **self.base_params,
             "messages": messages.copy(),
-            "system": system_content
+            "system": system_content,
         }
-        
+
         if tools:
             api_params["tools"] = tools
             api_params["tool_choice"] = {"type": "auto"}
-        
+
         return self.client.messages.create(**api_params)
-    
-    def _execute_tools_with_error_handling(self, response, tool_manager) -> Optional[List[Dict]]:
+
+    def _execute_tools_with_error_handling(
+        self, response, tool_manager
+    ) -> Optional[List[Dict]]:
         """
         Execute all tool calls from a response with comprehensive error handling.
-        
+
         Args:
             response: API response containing tool use requests
             tool_manager: Manager to execute tools
-            
+
         Returns:
             List of tool results or None if all failed
         """
         tool_results = []
-        
+
         for content_block in response.content:
             if content_block.type == "tool_use":
                 try:
                     result = tool_manager.execute_tool(
-                        content_block.name,
-                        **content_block.input
+                        content_block.name, **content_block.input
                     )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": content_block.id,
-                        "content": result
-                    })
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": content_block.id,
+                            "content": result,
+                        }
+                    )
                 except Exception as e:
                     # Log error but continue with partial results
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": content_block.id,
-                        "content": f"Tool execution failed: {str(e)}"
-                    })
-        
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": content_block.id,
+                            "content": f"Tool execution failed: {str(e)}",
+                        }
+                    )
+
         return tool_results if tool_results else None
-    
+
     def _extract_text_response(self, response) -> str:
         """
         Extract text content from API response.
-        
+
         Args:
             response: API response object
-            
+
         Returns:
             Text content from response
         """
         for content in response.content:
-            if hasattr(content, 'text') and isinstance(content.text, str):
+            if hasattr(content, "text") and isinstance(content.text, str):
                 return content.text
-            elif hasattr(content, 'type') and content.type == "text" and hasattr(content, 'text') and isinstance(content.text, str):
+            elif (
+                hasattr(content, "type")
+                and content.type == "text"
+                and hasattr(content, "text")
+                and isinstance(content.text, str)
+            ):
                 return content.text
-        
+
         # Fallback for backward compatibility - but check it's actually a string
-        if hasattr(response.content[0], 'text') and isinstance(response.content[0].text, str):
+        if hasattr(response.content[0], "text") and isinstance(
+            response.content[0].text, str
+        ):
             return response.content[0].text
         return "No text response generated"
-    
