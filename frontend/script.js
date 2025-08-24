@@ -1,11 +1,13 @@
 // API base URL - use relative path to work from any host
 const API_URL = '/api';
 
+console.log('Script loaded - version 10');
+
 // Global state
 let currentSessionId = null;
 
 // DOM elements
-let chatMessages, chatInput, sendButton, totalCourses, courseTitles;
+let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatButton;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendButton = document.getElementById('sendButton');
     totalCourses = document.getElementById('totalCourses');
     courseTitles = document.getElementById('courseTitles');
+    newChatButton = document.getElementById('newChatButton');
     
     setupEventListeners();
     createNewSession();
@@ -29,6 +32,8 @@ function setupEventListeners() {
         if (e.key === 'Enter') sendMessage();
     });
     
+    // New Chat button
+    newChatButton.addEventListener('click', startNewChat);
     
     // Suggested questions
     document.querySelectorAll('.suggested-item').forEach(button => {
@@ -122,10 +127,31 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        // Debug: Check first source structure
+        console.log('First source structure:', JSON.stringify(sources[0], null, 2));
+        
+        // Handle both old format (strings) and new format (objects with text and link)
+        const sourceElements = sources.map(source => {
+            if (typeof source === 'string') {
+                // Old format - just display as text
+                return source;
+            } else if (source && typeof source === 'object' && source.text) {
+                // New format - create clickable link if lesson link is available
+                if (source.link) {
+                    return `<a href="${source.link}" target="_blank" rel="noopener" class="source-link">${source.text}</a>`;
+                } else {
+                    return source.text;
+                }
+            } else {
+                // Fallback - try to stringify the object
+                return source.toString();
+            }
+        });
+        
         html += `
             <details class="sources-collapsible">
                 <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+                <div class="sources-content">${sourceElements.join(', ')}</div>
             </details>
         `;
     }
@@ -145,6 +171,35 @@ function escapeHtml(text) {
 }
 
 // Removed removeMessage function - no longer needed since we handle loading differently
+
+async function startNewChat() {
+    // Clear the current session on the backend if one exists
+    if (currentSessionId) {
+        try {
+            await fetch(`${API_URL}/sessions/${currentSessionId}/clear`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+        } catch (error) {
+            console.error('Error clearing session:', error);
+            // Continue with frontend cleanup even if backend fails
+        }
+    }
+    
+    // Clear frontend state
+    currentSessionId = null;
+    chatMessages.innerHTML = '';
+    
+    // Show welcome message
+    addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+    
+    // Focus input field
+    if (chatInput) {
+        chatInput.focus();
+    }
+}
 
 async function createNewSession() {
     currentSessionId = null;
